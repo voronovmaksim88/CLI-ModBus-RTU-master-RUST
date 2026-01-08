@@ -752,6 +752,19 @@ async fn start_polling() -> io::Result<()> {
     };
 
     let conn = &config.connection;
+    
+    // Проверяем, есть ли вообще регистры в файле
+    if registers_config.registers.is_empty() {
+        println!("\n{}", "ОШИБКА: Список регистров пуст!".red().bold());
+        println!("{}", "Невозможно начать опрос без регистров.".yellow());
+        println!("\n{}", "Что нужно сделать:".cyan());
+        println!("  1. Перейдите в меню 'Регистры' (пункт 4)");
+        println!("  2. Выберите 'Добавить регистр' (пункт 3)");
+        println!("  3. Добавьте необходимые регистры для опроса");
+        wait_for_continue()?;
+        return Ok(());
+    }
+    
     let enabled_registers: Vec<&RegisterConfig> = registers_config
         .registers
         .iter()
@@ -759,11 +772,17 @@ async fn start_polling() -> io::Result<()> {
         .collect();
 
     if enabled_registers.is_empty() {
-        println!("{}", "Нет активных регистров для опроса!".red());
+        println!("\n{}", "ОШИБКА: Нет активных регистров для опроса!".red().bold());
         println!(
             "{}",
-            "Проверьте файл tags.csv и убедитесь, что есть регистры с enabled: true".yellow()
+            format!("В файле tags.csv есть {} регистр(ов), но все они отключены (enabled: false).", registers_config.registers.len()).yellow()
         );
+        println!("\n{}", "Что нужно сделать:".cyan());
+        println!("  1. Перейдите в меню 'Регистры' (пункт 4)");
+        println!("  2. Выберите 'Показать регистры' (пункт 1) - посмотрите список");
+        println!("  3. Отредактируйте файл tags.csv и установите enabled: true для нужных регистров");
+        println!("     или добавьте новые регистры через 'Добавить регистр' (пункт 3)");
+        wait_for_continue()?;
         return Ok(());
     }
 
@@ -1282,7 +1301,7 @@ fn initialize_config_if_needed() -> io::Result<()> {
         // Сохраняем в файл
         match save_settings(default_connection) {
             Ok(()) => {
-                println!("{}", "✓ Файл connect_settings.json создан с настройками по умолчанию".green());
+                println!("{}", "Файл connect_settings.json создан с настройками по умолчанию".green());
                 println!("\n{}", "Настройки по умолчанию:".cyan());
                 println!("  • COM-порт: COM1");
                 println!("  • Адрес устройства: 1");
@@ -1293,7 +1312,34 @@ fn initialize_config_if_needed() -> io::Result<()> {
                 println!();
             }
             Err(e) => {
-                eprintln!("{}", format!("✗ Ошибка создания файла настроек: {}", e).red());
+                eprintln!("{}", format!("Ошибка создания файла настроек: {}", e).red());
+                return Err(e);
+            }
+        }
+    }
+    
+    Ok(())
+}
+
+/// Функция инициализации файла регистров при первом запуске
+fn initialize_registers_if_needed() -> io::Result<()> {
+    let registers_path = get_registers_path();
+    
+    // Проверяем существование файла регистров
+    if !std::path::Path::new(&registers_path).exists() {
+        println!("{}", "Файл регистров не найден. Создаём пустой файл tags.csv...".yellow());
+        
+        // Создаём пустой CSV файл с заголовком
+        let empty_registers: Vec<RegisterConfig> = Vec::new();
+        
+        match save_registers_to_csv(&empty_registers) {
+            Ok(()) => {
+                println!("{}", "Файл tags.csv создан (пустой список регистров)".green());
+                println!("{}", "Вы можете добавить регистры через меню 'Регистры' -> 'Добавить регистр'".bright_black());
+                println!();
+            }
+            Err(e) => {
+                eprintln!("{}", format!("Ошибка создания файла регистров: {}", e).red());
                 return Err(e);
             }
         }
@@ -1338,6 +1384,9 @@ async fn main() -> io::Result<()> {
 
     // Инициализация конфигурации при первом запуске
     initialize_config_if_needed()?;
+    
+    // Инициализация файла регистров при первом запуске
+    initialize_registers_if_needed()?;
 
     // Главный цикл программы
     loop {
@@ -1360,7 +1409,11 @@ async fn main() -> io::Result<()> {
             3 => {
                 // Начать опрос с использованием сохраненных настроек
                 match start_polling().await {
-                    Ok(()) => return Ok(()),
+                    Ok(()) => {
+                        // Опрос завершён (прерван пользователем или по другим причинам)
+                        // Возвращаемся в главное меню
+                        continue;
+                    }
                     Err(e) => {
                         eprintln!("{}", format!("Ошибка при опросе: {}", e).red());
                         wait_for_continue()?;
