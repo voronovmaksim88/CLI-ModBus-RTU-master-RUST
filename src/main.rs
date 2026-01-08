@@ -1210,6 +1210,51 @@ fn show_registers_menu() -> io::Result<u8> {
     }
 }
 
+/// Функция создания настроек подключения по умолчанию
+fn create_default_settings() -> ConnectionSettings {
+    ConnectionSettings {
+        port: "COM1".to_string(),
+        device_address: 1,
+        baud_rate: 9600,
+        parity: "None".to_string(),
+        stop_bits: 1,
+    }
+}
+
+/// Функция инициализации конфигурации при первом запуске
+fn initialize_config_if_needed() -> io::Result<()> {
+    let settings_path = get_settings_path();
+    
+    // Проверяем существование файла настроек
+    if !std::path::Path::new(&settings_path).exists() {
+        println!("{}", "Файл настроек не найден. Создаём конфигурацию по умолчанию...".yellow());
+        
+        // Создаём настройки по умолчанию
+        let default_connection = create_default_settings();
+        
+        // Сохраняем в файл
+        match save_settings(default_connection) {
+            Ok(()) => {
+                println!("{}", "✓ Файл connect_settings.json создан с настройками по умолчанию".green());
+                println!("\n{}", "Настройки по умолчанию:".cyan());
+                println!("  • COM-порт: COM1");
+                println!("  • Адрес устройства: 1");
+                println!("  • Скорость: 9600 бод");
+                println!("  • Четность: None");
+                println!("  • Стоп-биты: 1");
+                println!("\n{}", "Вы можете изменить настройки в меню (пункт 2)".bright_black());
+                println!();
+            }
+            Err(e) => {
+                eprintln!("{}", format!("✗ Ошибка создания файла настроек: {}", e).red());
+                return Err(e);
+            }
+        }
+    }
+    
+    Ok(())
+}
+
 /// Функция отображения главного меню
 fn show_main_menu() -> io::Result<u8> {
     clear_screen();
@@ -1243,6 +1288,9 @@ fn show_main_menu() -> io::Result<u8> {
 async fn main() -> io::Result<()> {
     // Включение поддержки цветного вывода в Windows
     enable_ansi_support();
+
+    // Инициализация конфигурации при первом запуске
+    initialize_config_if_needed()?;
 
     // Главный цикл программы
     loop {
