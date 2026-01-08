@@ -1180,6 +1180,52 @@ fn delete_register() -> io::Result<()> {
     Ok(())
 }
 
+/// Удаление всех регистров (с подтверждением)
+fn delete_all_registers() -> io::Result<()> {
+    clear_screen();
+    println!("{}", "=== Удаление всех регистров ===".red().bold());
+
+    let cfg = match load_registers_or_warn() {
+        Some(c) => c,
+        None => {
+            return Ok(());
+        }
+    };
+
+    if cfg.registers.is_empty() {
+        println!("{}", "Список регистров уже пуст".yellow());
+        wait_for_continue()?;
+        return Ok(());
+    }
+
+    let total_count = cfg.registers.len();
+    println!("\n{}", format!("Всего регистров в списке: {}", total_count).yellow());
+    println!("{}", "ВНИМАНИЕ! Это действие удалит ВСЕ регистры из файла tags.csv!".red().bold());
+    println!("{}", "Это действие необратимо!".red());
+
+    print!("\n{} ", "Вы уверены? Введите 'ДА' для подтверждения или любой другой текст для отмены:".yellow());
+    io::stdout().flush()?;
+    
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    
+    let confirmation = input.trim();
+    
+    if confirmation == "ДА" || confirmation == "да" || confirmation == "YES" || confirmation == "yes" {
+        // Удаляем все регистры - сохраняем пустой вектор
+        let empty_registers: Vec<RegisterConfig> = Vec::new();
+        save_registers_to_csv(&empty_registers)?;
+        
+        println!("\n{}", format!("Все регистры ({} шт.) успешно удалены", total_count).green().bold());
+        println!("{}", "Файл tags.csv теперь содержит только заголовок".bright_black());
+    } else {
+        println!("\n{}", "Удаление отменено".bright_black());
+    }
+    
+    wait_for_continue()?;
+    Ok(())
+}
+
 /// Функция отображения меню регистров
 fn show_registers_menu() -> io::Result<u8> {
     clear_screen();
@@ -1190,16 +1236,17 @@ fn show_registers_menu() -> io::Result<u8> {
     println!("  {} - Добавить регистр", "3".blue());
     println!("  {} - Изменить регистр", "4".magenta());
     println!("  {} - Отсортировать по адресу", "5".cyan());
+    println!("  {} - Удалить все регистры", "6".red().bold());
     println!("  {} - Назад в главное меню", "9".bright_black());
 
-    print!("\nВаш выбор (1-5, 9): ");
+    print!("\nВаш выбор (1-6, 9): ");
     io::stdout().flush()?;
 
     let mut input = String::new();
     io::stdin().read_line(&mut input)?;
 
     match input.trim().parse::<u8>() {
-        Ok(1) | Ok(2) | Ok(3) | Ok(4) | Ok(5) | Ok(9) => Ok(input.trim().parse().unwrap()),
+        Ok(1) | Ok(2) | Ok(3) | Ok(4) | Ok(5) | Ok(6) | Ok(9) => Ok(input.trim().parse().unwrap()),
         _ => {
             println!(
                 "{}",
@@ -1358,6 +1405,10 @@ async fn main() -> io::Result<()> {
                                 }
                             }
                             wait_for_continue()?;
+                        }
+                        6 => {
+                            // Удалить все регистры
+                            delete_all_registers()?;
                         }
                         9 => {
                             // Назад в главное меню
