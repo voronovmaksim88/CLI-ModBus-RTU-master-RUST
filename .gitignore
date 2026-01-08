@@ -1,0 +1,18 @@
+
+# Rust
+/target/
+**/target/
+
+# Cargo временные файлы
+Cargo.lock
+
+# IDE
+.idea/
+*.iml
+
+# Бинарные файлы
+*.exe
+*.pdb
+
+# node файлы
+*/node_modules/

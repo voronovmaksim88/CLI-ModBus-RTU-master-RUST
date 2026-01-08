@@ -1,0 +1,14 @@
+{
+  "connection": {
+    "port": "COM4",
+    "device_address": 1,
+    "baud_rate": 115200,
+    "parity": "None",
+    "stop_bits": 1
+  },
+  "metadata": {
+    "last_updated": "2025-08-13T09:00:04.176600100+00:00",
+    "version": "1.0",
+    "description": "Настройки подключения для Modbus RTU через RS-485"
+  }
+}

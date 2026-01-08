@@ -1,0 +1,8 @@
+name;description;address;var_type;modbus_type;enabled
+Konf_EK;Наличие электрокалорифера (ЭК);0;bool;coil;true
+Konf_YZY;Наличие ультразвукового увлажнителя (УЗУ);1;bool;coil;true
+rezhim1;Режим установки, 0-стоп, 1-пуск.;10;u16;input_register;true
+AlarmWord1;1-ое аварийное слово пользовательское;20;u16;input_register;true
+AlarmWord2;2-ое аварийное слово системное;21;u16;input_register;true
+sec_count;счётчик секунд после старта программы;10002;u32;input_register;true
+Proc_YZY;Мощность УЗУ, %;150;float;input_register;true
