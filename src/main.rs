@@ -7,7 +7,9 @@ use scan_available_ports::scan_available_ports;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{self, Write};
+use std::net::ToSocketAddrs;
 use std::time::Duration;
+use tokio_modbus::client::Context;
 use tokio_modbus::prelude::*;
 use tokio_serial::SerialStream;
 
@@ -29,6 +31,10 @@ const PARITY_OPTIONS: (&str, &str, &str) = ("None", "Even", "Odd");
 
 /// Доступные варианты стоп-битов для RS-485
 const STOP_BITS_OPTIONS: (&str, &str) = ("1 стоп-бит", "2 стоп-бита");
+const MODE_RTU: &str = "RTU";
+const MODE_TCP: &str = "TCP";
+const DEFAULT_TCP_HOST: &str = "127.0.0.1";
+const DEFAULT_TCP_PORT: u16 = 502;
 
 /// Структура для хранения настроек подключения
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -38,6 +44,12 @@ struct ConnectionSettings {
     baud_rate: u32,
     parity: String,
     stop_bits: u8,
+    #[serde(default = "default_connection_mode")]
+    mode: String,
+    #[serde(default = "default_tcp_host")]
+    tcp_host: String,
+    #[serde(default = "default_tcp_port")]
+    tcp_port: u16,
 }
 
 /// Структура для метаданных
@@ -71,6 +83,22 @@ struct RegistersConfig {
 struct Config {
     connection: ConnectionSettings,
     metadata: Metadata,
+}
+
+fn default_connection_mode() -> String {
+    MODE_RTU.to_string()
+}
+
+fn default_tcp_host() -> String {
+    DEFAULT_TCP_HOST.to_string()
+}
+
+fn default_tcp_port() -> u16 {
+    DEFAULT_TCP_PORT
+}
+
+fn is_tcp_mode(mode: &str) -> bool {
+    mode.eq_ignore_ascii_case(MODE_TCP)
 }
 
 /// Включение поддержки цветного вывода в Windows
@@ -202,6 +230,55 @@ fn select_device_address() -> io::Result<u8> {
             Err(_) => {
                 println!("{}", "Неверный формат! Введите число от 1 до 240.".red());
             }
+        }
+    }
+}
+
+fn select_tcp_host(current_host: &str) -> io::Result<String> {
+    println!("\n{}", "Настройка TCP хоста".cyan());
+    println!(
+        "{}",
+        format!("Текущее значение: {}", current_host).bright_black()
+    );
+
+    loop {
+        print!("Введите IP/хост (Enter = оставить текущее): ");
+        io::stdout().flush()?;
+
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+
+        let trimmed = input.trim();
+        if trimmed.is_empty() {
+            return Ok(current_host.to_string());
+        }
+
+        return Ok(trimmed.to_string());
+    }
+}
+
+fn select_tcp_port(current_port: u16) -> io::Result<u16> {
+    println!("\n{}", "Настройка TCP порта".cyan());
+    println!(
+        "{}",
+        format!("Текущее значение: {}", current_port).bright_black()
+    );
+
+    loop {
+        print!("Введите TCP порт (1-65535, Enter = оставить текущий): ");
+        io::stdout().flush()?;
+
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+
+        let trimmed = input.trim();
+        if trimmed.is_empty() {
+            return Ok(current_port);
+        }
+
+        match trimmed.parse::<u16>() {
+            Ok(port) if port >= 1 => return Ok(port),
+            _ => println!("{}", "Неверный порт! Введите число от 1 до 65535.".red()),
         }
     }
 }
@@ -440,7 +517,7 @@ fn save_settings(connection: ConnectionSettings) -> io::Result<()> {
     let metadata = Metadata {
         last_updated: chrono::Utc::now().to_rfc3339(),
         version: "1.0".to_string(),
-        description: "Настройки подключения для Modbus RTU через RS-485".to_string(),
+        description: "Настройки подключения для Modbus RTU и Modbus TCP".to_string(),
     };
 
     let config = Config {
@@ -465,29 +542,43 @@ fn show_connection_settings() -> io::Result<()> {
         Ok(config) => {
             let conn = &config.connection;
             println!("\n{}", "Параметры подключения:".yellow());
-            println!("  {} {}", "COM-порт:".green(), conn.port.bright_white());
+            println!(
+                "  {} {}",
+                "Режим:".green(),
+                conn.mode.bright_white()
+            );
             println!(
                 "  {} {}",
                 "Адрес устройства:".green(),
                 conn.device_address.to_string().bright_white()
             );
-            println!(
-                "  {} {} бод",
-                "Скорость:".green(),
-                conn.baud_rate.to_string().bright_white()
-            );
-            println!("  {} {}", "Четность:".green(), conn.parity.bright_white());
+            if is_tcp_mode(&conn.mode) {
+                println!("  {} {}", "TCP хост:".green(), conn.tcp_host.bright_white());
+                println!(
+                    "  {} {}",
+                    "TCP порт:".green(),
+                    conn.tcp_port.to_string().bright_white()
+                );
+            } else {
+                println!("  {} {}", "COM-порт:".green(), conn.port.bright_white());
+                println!(
+                    "  {} {} бод",
+                    "Скорость:".green(),
+                    conn.baud_rate.to_string().bright_white()
+                );
+                println!("  {} {}", "Четность:".green(), conn.parity.bright_white());
 
-            let stop_bits_text = match conn.stop_bits {
-                1 => "1 стоп-бит",
-                2 => "2 стоп-бита",
-                _ => "неизвестно",
-            };
-            println!(
-                "  {} {}",
-                "Стоп-биты:".green(),
-                stop_bits_text.bright_white()
-            );
+                let stop_bits_text = match conn.stop_bits {
+                    1 => "1 стоп-бит",
+                    2 => "2 стоп-бита",
+                    _ => "неизвестно",
+                };
+                println!(
+                    "  {} {}",
+                    "Стоп-биты:".green(),
+                    stop_bits_text.bright_white()
+                );
+            }
 
             println!("\n{}", "Информация о файле:".yellow());
             println!(
@@ -643,56 +734,83 @@ fn change_connection_settings() -> io::Result<()> {
     clear_screen();
     println!("{}", "=== Изменение настроек связи ===".cyan().bold());
     println!();
+    let current_settings = match load_settings() {
+        Ok(config) => config.connection,
+        Err(_) => create_default_settings(),
+    };
 
-    // Сканирование доступных портов
-    let mut available_ports: [u8; 10] = [0; 10];
-    let ports_count = scan_available_ports(&mut available_ports);
+    let connection_settings = if is_tcp_mode(&current_settings.mode) {
+        println!("{}", "Текущий режим: Modbus TCP".yellow());
 
-    // Выбор COM-порта
-    let port = loop {
-        match select_com_port(&available_ports, ports_count)? {
-            Some(port) => break port,
-            None => {
-                if !handle_no_ports()? {
-                    return Ok(()); // Пользователь выбрал выход
-                }
-                println!(); // Пустая строка для разделения
-                let ports_count = scan_available_ports(&mut available_ports);
-                if ports_count == 0 {
-                    continue;
+        let tcp_host = select_tcp_host(&current_settings.tcp_host)?;
+        let tcp_port = select_tcp_port(current_settings.tcp_port)?;
+        let device_address = select_device_address()?;
+
+        ConnectionSettings {
+            port: current_settings.port,
+            device_address,
+            baud_rate: current_settings.baud_rate,
+            parity: current_settings.parity,
+            stop_bits: current_settings.stop_bits,
+            mode: MODE_TCP.to_string(),
+            tcp_host,
+            tcp_port,
+        }
+    } else {
+        println!("{}", "Текущий режим: Modbus RTU".yellow());
+
+        // Сканирование доступных портов
+        let mut available_ports: [u8; 10] = [0; 10];
+        let ports_count = scan_available_ports(&mut available_ports);
+
+        // Выбор COM-порта
+        let port = loop {
+            match select_com_port(&available_ports, ports_count)? {
+                Some(port) => break port,
+                None => {
+                    if !handle_no_ports()? {
+                        return Ok(()); // Пользователь выбрал выход
+                    }
+                    println!(); // Пустая строка для разделения
+                    let ports_count = scan_available_ports(&mut available_ports);
+                    if ports_count == 0 {
+                        continue;
+                    }
                 }
             }
+        };
+
+        // Выбор адреса устройства
+        let device_address = select_device_address()?;
+
+        // Выбор скорости передачи данных
+        let baud_rate = select_baud_rate()?;
+
+        // Выбор четности
+        let parity_enum = select_parity()?;
+        let parity = match parity_enum {
+            tokio_serial::Parity::None => "None".to_string(),
+            tokio_serial::Parity::Even => "Even".to_string(),
+            tokio_serial::Parity::Odd => "Odd".to_string(),
+        };
+
+        // Выбор количества стоп-битов
+        let stop_bits_enum = select_stop_bits()?;
+        let stop_bits = match stop_bits_enum {
+            tokio_serial::StopBits::One => 1,
+            tokio_serial::StopBits::Two => 2,
+        };
+
+        ConnectionSettings {
+            port,
+            device_address,
+            baud_rate,
+            parity,
+            stop_bits,
+            mode: MODE_RTU.to_string(),
+            tcp_host: current_settings.tcp_host,
+            tcp_port: current_settings.tcp_port,
         }
-    };
-
-    // Выбор адреса устройства
-    let device_address = select_device_address()?;
-
-    // Выбор скорости передачи данных
-    let baud_rate = select_baud_rate()?;
-
-    // Выбор четности
-    let parity_enum = select_parity()?;
-    let parity = match parity_enum {
-        tokio_serial::Parity::None => "None".to_string(),
-        tokio_serial::Parity::Even => "Even".to_string(),
-        tokio_serial::Parity::Odd => "Odd".to_string(),
-    };
-
-    // Выбор количества стоп-битов
-    let stop_bits_enum = select_stop_bits()?;
-    let stop_bits = match stop_bits_enum {
-        tokio_serial::StopBits::One => 1,
-        tokio_serial::StopBits::Two => 2,
-    };
-
-    // Создание структуры настроек
-    let connection_settings = ConnectionSettings {
-        port,
-        device_address,
-        baud_rate,
-        parity,
-        stop_bits,
     };
 
     // Сохранение настроек в файл
@@ -708,178 +826,7 @@ fn change_connection_settings() -> io::Result<()> {
     Ok(())
 }
 
-/// Функция запуска опроса с использованием сохраненных настроек
-async fn start_polling() -> io::Result<()> {
-    clear_screen();
-    println!("{}", "=== Запуск опроса устройства ===".cyan().bold());
-
-    // Загрузка настроек подключения
-    let config = match load_settings() {
-        Ok(config) => {
-            println!("{}", "Настройки подключения успешно загружены".green());
-            config
-        }
-        Err(e) => {
-            eprintln!(
-                "{}",
-                format!("Ошибка загрузки настроек подключения: {}", e).red()
-            );
-            println!(
-                "{}",
-                "Убедитесь, что настройки сохранены (пункт 2 в главном меню)".yellow()
-            );
-            return Err(e);
-        }
-    };
-
-    // Загрузка конфигурации регистров
-    let registers_config = match load_registers() {
-        Ok(registers_config) => {
-            println!("{}", "Конфигурация регистров успешно загружена".green());
-            registers_config
-        }
-        Err(e) => {
-            eprintln!(
-                "{}",
-                format!("Ошибка загрузки конфигурации регистров: {}", e).red()
-            );
-            println!(
-                "{}",
-                "Убедитесь, что файл tags.csv существует и корректен".yellow()
-            );
-            return Err(e);
-        }
-    };
-
-    let conn = &config.connection;
-    
-    // Проверяем, есть ли вообще регистры в файле
-    if registers_config.registers.is_empty() {
-        println!("\n{}", "ОШИБКА: Список регистров пуст!".red().bold());
-        println!("{}", "Невозможно начать опрос без регистров.".yellow());
-        println!("\n{}", "Что нужно сделать:".cyan());
-        println!("  1. Перейдите в меню 'Регистры' (пункт 4)");
-        println!("  2. Выберите 'Добавить регистр' (пункт 3)");
-        println!("  3. Добавьте необходимые регистры для опроса");
-        wait_for_continue()?;
-        return Ok(());
-    }
-    
-    let enabled_registers: Vec<&RegisterConfig> = registers_config
-        .registers
-        .iter()
-        .filter(|reg| reg.enabled)
-        .collect();
-
-    if enabled_registers.is_empty() {
-        println!("\n{}", "ОШИБКА: Нет активных регистров для опроса!".red().bold());
-        println!(
-            "{}",
-            format!("В файле tags.csv есть {} регистр(ов), но все они отключены (enabled: false).", registers_config.registers.len()).yellow()
-        );
-        println!("\n{}", "Что нужно сделать:".cyan());
-        println!("  1. Перейдите в меню 'Регистры' (пункт 4)");
-        println!("  2. Выберите 'Показать регистры' (пункт 1) - посмотрите список");
-        println!("  3. Отредактируйте файл tags.csv и установите enabled: true для нужных регистров");
-        println!("     или добавьте новые регистры через 'Добавить регистр' (пункт 3)");
-        wait_for_continue()?;
-        return Ok(());
-    }
-
-    println!("Используемые настройки подключения:");
-    println!("  COM-порт: {}", conn.port.bright_white());
-    println!(
-        "  Адрес устройства: {}",
-        conn.device_address.to_string().bright_white()
-    );
-    println!(
-        "  Скорость: {} бод",
-        conn.baud_rate.to_string().bright_white()
-    );
-    println!("  Четность: {}", conn.parity.bright_white());
-
-    let stop_bits_text = match conn.stop_bits {
-        1 => "1 стоп-бит",
-        2 => "2 стоп-бита",
-        _ => "неизвестно",
-    };
-    println!("  Стоп-биты: {}", stop_bits_text.bright_white());
-
-    println!("\nАктивные регистры для опроса:");
-    for register in &enabled_registers {
-        let qty = compute_quantity(&register.var_type);
-        println!(
-            "  {} (адрес: {}, тип: {}, количество: {})",
-            register.name.cyan(),
-            register.address,
-            register.var_type.yellow(),
-            qty
-        );
-    }
-    println!();
-
-    // Преобразование настроек для tokio_serial
-    let parity = match conn.parity.as_str() {
-        "None" => tokio_serial::Parity::None,
-        "Even" => tokio_serial::Parity::Even,
-        "Odd" => tokio_serial::Parity::Odd,
-        _ => tokio_serial::Parity::None,
-    };
-
-    let stop_bits = match conn.stop_bits {
-        1 => tokio_serial::StopBits::One,
-        2 => tokio_serial::StopBits::Two,
-        _ => tokio_serial::StopBits::One,
-    };
-
-    // Настройка параметров последовательного порта
-    let builder = tokio_serial::new(&conn.port, conn.baud_rate)
-        .data_bits(tokio_serial::DataBits::Eight)
-        .parity(parity)
-        .stop_bits(stop_bits);
-
-    // Открытие последовательного порта
-    let port = match SerialStream::open(&builder) {
-        Ok(port) => {
-            println!(
-                "{}",
-                format!("Последовательный порт {} успешно открыт", conn.port).green()
-            );
-            port
-        }
-        Err(e) => {
-            eprintln!(
-                "{}",
-                format!(
-                    "Ошибка открытия последовательного порта {}: {:?}",
-                    conn.port, e
-                )
-                .red()
-            );
-            return Err(e.into());
-        }
-    };
-
-    // Создание контекста Modbus RTU
-    let mut ctx = match rtu::connect(port).await {
-        Ok(ctx) => {
-            println!("{}", "Modbus RTU контекст успешно создан".green());
-            ctx
-        }
-        Err(e) => {
-            eprintln!(
-                "{}",
-                format!("Ошибка создания Modbus RTU контекста: {:?}", e).red()
-            );
-            return Err(e.into());
-        }
-    };
-
-    // Установка адреса устройства
-    let slave_addr = Slave(conn.device_address);
-    ctx.set_slave(slave_addr);
-
-    // Циклический опрос устройства каждую секунду
+async fn run_polling_loop(ctx: &mut Context, enabled_registers: &[&RegisterConfig]) -> io::Result<()> {
     println!(
         "{}",
         "Начинается циклический опрос устройства (каждую секунду)...".cyan()
@@ -891,14 +838,12 @@ async fn start_polling() -> io::Result<()> {
     let mut error_count = 0;
 
     loop {
-        // Показываем только время
         let timestamp = chrono::Local::now().format("%H:%M:%S");
         print!("{} ", timestamp.to_string().bright_black());
 
         let mut all_success = true;
 
-        // Опрашиваем каждый активный регистр
-        for register in &enabled_registers {
+        for register in enabled_registers {
             match register.modbus_type.as_str() {
                 "input_register" => {
                     let qty = compute_quantity(&register.var_type);
@@ -957,7 +902,6 @@ async fn start_polling() -> io::Result<()> {
             }
         }
 
-        // Обновляем счетчик ошибок
         if all_success {
             error_count = 0;
         } else {
@@ -968,11 +912,222 @@ async fn start_polling() -> io::Result<()> {
             print!("{}", format!("(errors: {})", error_count).yellow());
         }
 
-        println!(); // Переход на новую строку
-
-        // Ожидание 1 секунды перед следующим опросом
+        println!();
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
+}
+
+/// Функция запуска опроса с использованием сохраненных настроек
+async fn start_polling() -> io::Result<()> {
+    clear_screen();
+    println!("{}", "=== Запуск опроса устройства ===".cyan().bold());
+
+    // Загрузка настроек подключения
+    let config = match load_settings() {
+        Ok(config) => {
+            println!("{}", "Настройки подключения успешно загружены".green());
+            config
+        }
+        Err(e) => {
+            eprintln!(
+                "{}",
+                format!("Ошибка загрузки настроек подключения: {}", e).red()
+            );
+            println!(
+                "{}",
+                "Убедитесь, что настройки сохранены (пункт 2 в главном меню)".yellow()
+            );
+            return Err(e);
+        }
+    };
+
+    // Загрузка конфигурации регистров
+    let registers_config = match load_registers() {
+        Ok(registers_config) => {
+            println!("{}", "Конфигурация регистров успешно загружена".green());
+            registers_config
+        }
+        Err(e) => {
+            eprintln!(
+                "{}",
+                format!("Ошибка загрузки конфигурации регистров: {}", e).red()
+            );
+            println!(
+                "{}",
+                "Убедитесь, что файл tags.csv существует и корректен".yellow()
+            );
+            return Err(e);
+        }
+    };
+
+    let conn = &config.connection;
+
+    // Проверяем, есть ли вообще регистры в файле
+    if registers_config.registers.is_empty() {
+        println!("\n{}", "ОШИБКА: Список регистров пуст!".red().bold());
+        println!("{}", "Невозможно начать опрос без регистров.".yellow());
+        println!("\n{}", "Что нужно сделать:".cyan());
+        println!("  1. Перейдите в меню 'Регистры' (пункт 4)");
+        println!("  2. Выберите 'Добавить регистр' (пункт 3)");
+        println!("  3. Добавьте необходимые регистры для опроса");
+        wait_for_continue()?;
+        return Ok(());
+    }
+
+    let enabled_registers: Vec<&RegisterConfig> = registers_config
+        .registers
+        .iter()
+        .filter(|reg| reg.enabled)
+        .collect();
+
+    if enabled_registers.is_empty() {
+        println!("\n{}", "ОШИБКА: Нет активных регистров для опроса!".red().bold());
+        println!(
+            "{}",
+            format!("В файле tags.csv есть {} регистр(ов), но все они отключены (enabled: false).", registers_config.registers.len()).yellow()
+        );
+        println!("\n{}", "Что нужно сделать:".cyan());
+        println!("  1. Перейдите в меню 'Регистры' (пункт 4)");
+        println!("  2. Выберите 'Показать регистры' (пункт 1) - посмотрите список");
+        println!("  3. Отредактируйте файл tags.csv и установите enabled: true для нужных регистров");
+        println!("     или добавьте новые регистры через 'Добавить регистр' (пункт 3)");
+        wait_for_continue()?;
+        return Ok(());
+    }
+
+    println!("Используемые настройки подключения:");
+    println!("  Режим: {}", conn.mode.bright_white());
+    println!(
+        "  Адрес устройства: {}",
+        conn.device_address.to_string().bright_white()
+    );
+
+    if is_tcp_mode(&conn.mode) {
+        println!("  TCP хост: {}", conn.tcp_host.bright_white());
+        println!("  TCP порт: {}", conn.tcp_port.to_string().bright_white());
+    } else {
+        println!("  COM-порт: {}", conn.port.bright_white());
+        println!(
+            "  Скорость: {} бод",
+            conn.baud_rate.to_string().bright_white()
+        );
+        println!("  Четность: {}", conn.parity.bright_white());
+
+        let stop_bits_text = match conn.stop_bits {
+            1 => "1 стоп-бит",
+            2 => "2 стоп-бита",
+            _ => "неизвестно",
+        };
+        println!("  Стоп-биты: {}", stop_bits_text.bright_white());
+    }
+
+    println!("\nАктивные регистры для опроса:");
+    for register in &enabled_registers {
+        let qty = compute_quantity(&register.var_type);
+        println!(
+            "  {} (адрес: {}, тип: {}, количество: {})",
+            register.name.cyan(),
+            register.address,
+            register.var_type.yellow(),
+            qty
+        );
+    }
+    println!();
+
+    let slave_addr = Slave(conn.device_address);
+
+    if is_tcp_mode(&conn.mode) {
+        let socket_text = format!("{}:{}", conn.tcp_host, conn.tcp_port);
+        let socket_addr = socket_text
+            .to_socket_addrs()
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?
+            .next()
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Не удалось разрешить TCP адрес подключения",
+                )
+            })?;
+
+        let mut ctx = match tokio_modbus::client::tcp::connect(socket_addr).await {
+            Ok(ctx) => {
+                println!(
+                    "{}",
+                    format!("TCP соединение с {} успешно установлено", socket_text).green()
+                );
+                ctx
+            }
+            Err(e) => {
+                eprintln!("{}", format!("Ошибка TCP подключения: {:?}", e).red());
+                return Err(io::Error::other(format!("{:?}", e)));
+            }
+        };
+
+        ctx.set_slave(slave_addr);
+        run_polling_loop(&mut ctx, &enabled_registers).await?;
+    } else {
+        // Преобразование настроек для tokio_serial
+        let parity = match conn.parity.as_str() {
+            "None" => tokio_serial::Parity::None,
+            "Even" => tokio_serial::Parity::Even,
+            "Odd" => tokio_serial::Parity::Odd,
+            _ => tokio_serial::Parity::None,
+        };
+
+        let stop_bits = match conn.stop_bits {
+            1 => tokio_serial::StopBits::One,
+            2 => tokio_serial::StopBits::Two,
+            _ => tokio_serial::StopBits::One,
+        };
+
+        // Настройка параметров последовательного порта
+        let builder = tokio_serial::new(&conn.port, conn.baud_rate)
+            .data_bits(tokio_serial::DataBits::Eight)
+            .parity(parity)
+            .stop_bits(stop_bits);
+
+        // Открытие последовательного порта
+        let port = match SerialStream::open(&builder) {
+            Ok(port) => {
+                println!(
+                    "{}",
+                    format!("Последовательный порт {} успешно открыт", conn.port).green()
+                );
+                port
+            }
+            Err(e) => {
+                eprintln!(
+                    "{}",
+                    format!(
+                        "Ошибка открытия последовательного порта {}: {:?}",
+                        conn.port, e
+                    )
+                    .red()
+                );
+                return Err(e.into());
+            }
+        };
+
+        // Создание контекста Modbus RTU
+        let mut ctx = match rtu::connect(port).await {
+            Ok(ctx) => {
+                println!("{}", "Modbus RTU контекст успешно создан".green());
+                ctx
+            }
+            Err(e) => {
+                eprintln!(
+                    "{}",
+                    format!("Ошибка создания Modbus RTU контекста: {:?}", e).red()
+                );
+                return Err(io::Error::other(format!("{:?}", e)));
+            }
+        };
+
+        ctx.set_slave(slave_addr);
+        run_polling_loop(&mut ctx, &enabled_registers).await?;
+    }
+
+    Ok(())
 }
 
 /// Функция отображения всех регистров и их настроек
@@ -1284,7 +1439,27 @@ fn create_default_settings() -> ConnectionSettings {
         baud_rate: 9600,
         parity: "None".to_string(),
         stop_bits: 1,
+        mode: default_connection_mode(),
+        tcp_host: default_tcp_host(),
+        tcp_port: default_tcp_port(),
     }
+}
+
+fn switch_connection_mode() -> io::Result<()> {
+    let mut conn = match load_settings() {
+        Ok(config) => config.connection,
+        Err(_) => create_default_settings(),
+    };
+
+    if is_tcp_mode(&conn.mode) {
+        conn.mode = MODE_RTU.to_string();
+        println!("{}", "Режим связи переключен на Modbus RTU".green().bold());
+    } else {
+        conn.mode = MODE_TCP.to_string();
+        println!("{}", "Режим связи переключен на Modbus TCP".green().bold());
+    }
+
+    save_settings(conn)
 }
 
 /// Функция инициализации конфигурации при первом запуске
@@ -1308,6 +1483,9 @@ fn initialize_config_if_needed() -> io::Result<()> {
                 println!("  • Скорость: 9600 бод");
                 println!("  • Четность: None");
                 println!("  • Стоп-биты: 1");
+                println!("  • Режим: RTU");
+                println!("  • TCP хост: 127.0.0.1");
+                println!("  • TCP порт: 502");
                 println!("\n{}", "Вы можете изменить настройки в меню (пункт 2)".bright_black());
                 println!();
             }
@@ -1351,22 +1529,38 @@ fn initialize_registers_if_needed() -> io::Result<()> {
 /// Функция отображения главного меню
 fn show_main_menu() -> io::Result<u8> {
     clear_screen();
-    println!("{}", "=== Modbus RTU Client ===".cyan().bold());
+    println!("{}", "=== Modbus RTU Server ===".cyan().bold());
+    let current_mode = match load_settings() {
+        Ok(config) => config.connection.mode,
+        Err(_) => default_connection_mode(),
+    };
+    let switch_mode_label = if is_tcp_mode(&current_mode) {
+        "Перейти в режим TRU"
+    } else {
+        "Перейти в режим TCP"
+    };
+
+    println!(
+        "{} {}",
+        "Текущий режим:".yellow(),
+        current_mode.bright_white()
+    );
     println!("\n{}", "Выберите действие:".yellow());
     println!("  {} - Показать настройки связи", "1".green());
     println!("  {} - Изменить настройки связи", "2".blue());
     println!("  {} - Начать опрос", "3".magenta());
     println!("  {} - Регистры", "4".bright_blue());
+    println!("  {} - {}", "5".cyan(), switch_mode_label);
     println!("  {} - Выйти", "9".red());
 
-    print!("\nВаш выбор (1-4, 9): ");
+    print!("\nВаш выбор (1-5, 9): ");
     io::stdout().flush()?;
 
     let mut input = String::new();
     io::stdin().read_line(&mut input)?;
 
     match input.trim().parse::<u8>() {
-        Ok(1) | Ok(2) | Ok(3) | Ok(4) | Ok(9) => Ok(input.trim().parse().unwrap()),
+        Ok(1) | Ok(2) | Ok(3) | Ok(4) | Ok(5) | Ok(9) => Ok(input.trim().parse().unwrap()),
         _ => {
             println!(
                 "{}",
@@ -1471,6 +1665,13 @@ async fn main() -> io::Result<()> {
                     }
                 }
                 continue; // Возвращаемся к главному меню
+            }
+            5 => {
+                if let Err(e) = switch_connection_mode() {
+                    eprintln!("{}", format!("Ошибка переключения режима: {}", e).red());
+                }
+                wait_for_continue()?;
+                continue;
             }
             9 => {
                 println!("{}", "Завершение программы...".yellow());
