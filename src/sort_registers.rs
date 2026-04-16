@@ -2,9 +2,8 @@ use std::io;
 use colored::*;
 
 use crate::{
-	load_registers,
-	save_registers_to_csv,
-	RegistersConfig,
+	config::model::RegistersConfig,
+	persistence::registers_csv::{load_registers, save_registers_to_csv},
 };
 
 #[allow(dead_code)]

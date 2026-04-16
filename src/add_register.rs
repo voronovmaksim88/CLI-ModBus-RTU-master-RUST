@@ -2,11 +2,9 @@ use colored::*;
 use std::io::{self, Write};
 
 use crate::{
-	clear_screen,
-	wait_for_continue,
-	load_registers_or_warn,
-	save_registers_to_csv,
-	RegisterConfig,
+	config::model::RegisterConfig,
+	persistence::registers_csv::{load_registers_or_warn, save_registers_to_csv},
+	terminal::{clear_screen, wait_for_continue},
 };
 
 /// Добавление нового регистра (интерактивно)
