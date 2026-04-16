@@ -1,4 +1,4 @@
-# CLI-ModBus-RTU-master-RUST
+# RUST-CLI-ModBus-Master
 
 ## 📝 Описание
 
@@ -57,7 +57,7 @@
 1. Клонируйте репозиторий:
 ```bash
 git clone <URL репозитория>
-cd CLI-ModBus-RTU-master-RUST
+cd rust-cli-modbus-master
 ```
 
 2. Соберите проект:
@@ -65,7 +65,7 @@ cd CLI-ModBus-RTU-master-RUST
 cargo build --release
 ```
 
-3. Исполняемый файл будет находиться в `target/release/test_modbus_v1r1.exe`
+3. Исполняемый файл будет находиться в `target/release/rust-cli-modbus-master.exe`
 
 ## 📖 Использование
 
@@ -78,7 +78,7 @@ cargo run
 
 **В режиме release:**
 ```bash
-./target/release/test_modbus_v1r1.exe
+./target/release/rust-cli-modbus-master.exe
 ```
 
 ### Главное меню
@@ -137,7 +137,7 @@ cargo run
 ## 📁 Структура проекта
 
 ```
-CLI-ModBus-RTU-master-RUST/
+rust-cli-modbus-master/
 ├── src/
 │   ├── main.rs                    # Главная логика программы и меню
 │   ├── add_register.rs            # Функции добавления регистров

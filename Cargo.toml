@@ -1,5 +1,5 @@
 [package]
-name = "CLI-ModBus-RTU-master-RUST"
+name = "rust-cli-modbus-master"
 version = "0.1.0"
 edition = "2024"
 

@@ -1,6 +1,6 @@
 use std::io;
 
-use CLI_ModBus_RTU_master_RUST::{run, terminal::enable_ansi_support};
+use rust_cli_modbus_master::{run, terminal::enable_ansi_support};
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
